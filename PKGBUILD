@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="Android and Meta Quest desktop sideloader"
 arch=('x86_64')
 url="https://github.com/DeliciousMeatPop/VRCD"
-license=('AGPL-3.0-only')
+license=('GPL-3.0-only')
 depends=('android-tools' 'fuse2')
 options=('!strip')
 
