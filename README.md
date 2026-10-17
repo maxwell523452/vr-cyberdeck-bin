@@ -15,3 +15,5 @@ sudo pacman -U vr-cyberdeck-bin-<version>-<release>-x86_64.pkg.tar.zst
 original repo: [deliciousmeatpop/vrcd](https://github.com/DeliciousMeatPop/VRCD)
 
 i don't own the original project, just packaged it to make installation easier on arch :p
+
+## pls dont forget to star !!!!!!
