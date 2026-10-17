@@ -216,7 +216,4 @@ jobs:
           gh release create "$TAG" "$package" \
             --verify-tag=false \
             --title "VR CyberDeck $TAG" \
-            --notes "Arch Linux package for VR CyberDeck ${VERSION}.
-
-          Upstream release:
-          https://github.com/DeliciousMeatPop/VRCD/releases/tag/${TAG}"
+            --notes "upstream release: [click here](https://github.com/DeliciousMeatPop/VRCD/releases/tag/${TAG})"
