@@ -51,11 +51,14 @@ jobs:
             exit 1
           fi
 
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "url=$url"
+          } >> "$GITHUB_OUTPUT"
 
           # Only skip when the release is already published in this repo.
+
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Release $tag already exists; nothing to do."
