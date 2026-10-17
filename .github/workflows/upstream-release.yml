@@ -116,11 +116,11 @@ jobs:
               r"^pkgver=.*$", f"pkgver={version}", data, "pkgver"
           )
 
-          # Reset pkgrel only when upstream's version actually changes.
-          if old_version != version:
-              data = replace_one(
-                  r"^pkgrel=.*$", "pkgrel=1", data, "pkgrel"
-              )
+
+          data = replace_one(
+              r"^pkgrel=.*$", "pkgrel=1", data, "pkgrel"
+          )
+
 
           sums = (
               f"sha256sums=('{app_sha}'\n"

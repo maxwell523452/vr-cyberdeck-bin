@@ -1,7 +1,7 @@
 
 pkgname=vr-cyberdeck-bin
 pkgver=1.8.7
-pkgrel=2
+pkgrel=1
 pkgdesc="Android and Meta Quest desktop sideloader"
 arch=('x86_64')
 url="https://github.com/DeliciousMeatPop/VRCD"
