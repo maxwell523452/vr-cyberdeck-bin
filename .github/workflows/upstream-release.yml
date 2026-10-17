@@ -1,0 +1,222 @@
+name: update vr cyberdeck
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vr-cyberdeck-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  update-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: check upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release="$(gh api repos/DeliciousMeatPop/VRCD/releases/latest)"
+          tag="$(jq -er '.tag_name' <<< "$release")"
+
+          if [[ ! "$tag" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::Unexpected upstream release tag: $tag"
+            exit 1
+          fi
+
+          version="${tag#v}"
+          asset="vr-cyberdeck-${version}-x86_64.AppImage"
+
+          url="$(jq -er --arg asset "$asset" \
+            '[.assets[] | select(.name == $asset)][0].browser_download_url' \
+            <<< "$release")"
+
+          if [[ -z "$url" || "$url" == "null" ]]; then
+            echo "::error::Upstream AppImage not found: $asset"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+          # Only skip when the release is already published in this repo.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $tag already exists; nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "New release detected: $tag"
+          fi
+
+      - name: download sources and calculate checksums
+        if: steps.upstream.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+          URL: ${{ steps.upstream.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .build-sources
+
+          curl --fail --location --retry 3 --retry-all-errors \
+            "$URL" \
+            --output ".build-sources/vr-cyberdeck-${VERSION}-x86_64.AppImage"
+
+          curl --fail --location --retry 3 --retry-all-errors \
+            "https://github.com/DeliciousMeatPop/VRCD/archive/refs/tags/v${VERSION}.tar.gz" \
+            --output .build-sources/vrcd-source.tar.gz
+
+          test -s ".build-sources/vr-cyberdeck-${VERSION}-x86_64.AppImage"
+          test -s .build-sources/vrcd-source.tar.gz
+
+          app_sha="$(sha256sum ".build-sources/vr-cyberdeck-${VERSION}-x86_64.AppImage" | cut -d' ' -f1)"
+          src_sha="$(sha256sum .build-sources/vrcd-source.tar.gz | cut -d' ' -f1)"
+
+          python3 - "$VERSION" "$app_sha" "$src_sha" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version, app_sha, src_sha = sys.argv[1:]
+          path = Path("PKGBUILD")
+          data = path.read_text()
+
+          def replace_one(pattern, replacement, content, name):
+              updated, count = re.subn(
+                  pattern, replacement, content, count=1, flags=re.M
+              )
+              if count != 1:
+                  raise SystemExit(f"Could not update {name}: expected one match")
+              return updated
+
+          old_version_match = re.search(r"^pkgver=(.*)$", data, re.M)
+          if not old_version_match:
+              raise SystemExit("PKGBUILD is missing pkgver")
+
+          old_version = old_version_match.group(1).strip()
+
+          data = replace_one(
+              r"^pkgver=.*$", f"pkgver={version}", data, "pkgver"
+          )
+
+          # Reset pkgrel only when upstream's version actually changes.
+          if old_version != version:
+              data = replace_one(
+                  r"^pkgrel=.*$", "pkgrel=1", data, "pkgrel"
+              )
+
+          sums = (
+              f"sha256sums=('{app_sha}'\n"
+              f"            '{src_sha}')"
+          )
+
+          data, count = re.subn(
+              r"sha256sums=\(.*?\)", lambda _: sums, data, count=1, flags=re.S
+          )
+          if count != 1:
+              raise SystemExit("Could not update sha256sums")
+
+          path.write_text(data)
+          print(f"PKGBUILD updated for upstream version {version}")
+          PY
+
+      - name: validate PKGBUILD
+        if: steps.upstream.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            -w /repo \
+            archlinux:base-devel \
+            bash -euo pipefail -c '
+              pacman -Sy --noconfirm --needed pacman-contrib
+              namcap PKGBUILD || true
+              bash -n PKGBUILD
+            '
+
+      - name: build package
+        if: steps.upstream.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            -w /tmp \
+            archlinux:base-devel \
+            bash -euo pipefail -c '
+              pacman -Syu --noconfirm --needed git android-tools fuse2
+
+              useradd -m builder
+              mkdir -p /tmp/build
+              cp /repo/PKGBUILD /tmp/build/
+              chown -R builder:builder /tmp/build
+
+              runuser -u builder -- bash -euo pipefail -c "
+                cd /tmp/build
+                makepkg --cleanbuild --nodeps --noconfirm
+              "
+
+              cp /tmp/build/*.pkg.tar.zst /repo/
+            '
+
+          package="$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)"
+          test -n "$package"
+          echo "Built package: $package"
+
+      - name: commit updated PKGBUILD
+        if: steps.upstream.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet -- PKGBUILD; then
+            git add PKGBUILD
+            git commit -m "chore: update VR CyberDeck to $VERSION"
+            git push origin HEAD:main
+          fi
+
+      - name: publish GitHub release
+        if: steps.upstream.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package="$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)"
+          test -n "$package"
+
+          gh release create "$TAG" "$package" \
+            --verify-tag=false \
+            --title "VR CyberDeck $TAG" \
+            --notes "Arch Linux package for VR CyberDeck ${VERSION}.
+
+          Upstream release:
+          https://github.com/DeliciousMeatPop/VRCD/releases/tag/${TAG}"
