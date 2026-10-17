@@ -1,10 +1,11 @@
 temporary place for my aur package until the sign ins are open !!!!
 
-its just vr cyberdeck for arch in .pkg.tar.zst format so u can just install it with the command below;
+download the latest `.pkg.tar.zst` package from [GitHub Releases](https://github.com/maxwell523452/vr-cyberdeck-bin/releases), then install it:
 
 ```bash
-sudo pacman -U vr-cyberdeck-$version$.pkg.tar.zst
+sudo pacman -U vr-cyberdeck-bin-<version>-<release>-x86_64.pkg.tar.zst
 ```
+
 original repo
 https://github.com/DeliciousMeatPop/VRCD
 
