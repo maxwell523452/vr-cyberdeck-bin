@@ -1,3 +1,4 @@
+
 name: Build Arch Package
 
 on:
@@ -11,31 +12,36 @@ permissions:
 jobs:
   build:
     name: Build VR CyberDeck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build package in Arch Linux
         run: |
           docker run --rm \
-            -v "$GITHUB_WORKSPACE:/pkg" \
-            -w /pkg \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            -w /tmp \
             archlinux:base-devel \
             bash -euo pipefail -c '
-              pacman -Syu --noconfirm --needed \
-                git android-tools fuse2
+              pacman -Syu --noconfirm --needed git android-tools fuse2
 
               useradd -m builder
-              chown -R builder:builder /pkg
+              mkdir -p /tmp/build
+              cp /repo/PKGBUILD /tmp/build/PKGBUILD
+              chown -R builder:builder /tmp/build
 
-              runuser -u builder -- \
+              runuser -u builder -- bash -euo pipefail -c "
+                cd /tmp/build
                 makepkg --cleanbuild --nodeps --noconfirm
+              "
+
+              cp /tmp/build/*.pkg.tar.zst /repo/
             '
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vr-cyberdeck-bin
           path: "*.pkg.tar.zst"
