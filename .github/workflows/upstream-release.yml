@@ -147,7 +147,7 @@ jobs:
             archlinux:base-devel \
             bash -euo pipefail -c '
               pacman -Sy --noconfirm --needed pacman-contrib
-              namcap PKGBUILD || true
+              namcap PKGBUILD
               bash -n PKGBUILD
             '
 
