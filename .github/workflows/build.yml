@@ -10,20 +10,29 @@ permissions:
 
 jobs:
   build:
-    name: Build vr-cyberdeck-bin
+    name: Build VR CyberDeck
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Build package in Arch Linux
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/pkg" -w /pkg archlinux:base-devel bash -euo pipefail -c '
-            pacman -Syu --noconfirm --needed base-devel git android-tools fuse2
-            useradd -m builder
-            chown -R builder:builder /pkg
-            runuser -u builder -- makepkg --cleanbuild --nodeps --noconfirm
-          '
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/pkg" \
+            -w /pkg \
+            archlinux:base-devel \
+            bash -euo pipefail -c '
+              pacman -Syu --noconfirm --needed \
+                git android-tools fuse2
+
+              useradd -m builder
+              chown -R builder:builder /pkg
+
+              runuser -u builder -- \
+                makepkg --cleanbuild --nodeps --noconfirm
+            '
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
