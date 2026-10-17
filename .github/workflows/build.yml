@@ -1,0 +1,34 @@
+name: Build Arch Package
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build vr-cyberdeck-bin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build package in Arch Linux
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/pkg" -w /pkg archlinux:base-devel bash -euo pipefail -c '
+            pacman -Syu --noconfirm --needed base-devel git android-tools fuse2
+            useradd -m builder
+            chown -R builder:builder /pkg
+            runuser -u builder -- makepkg --cleanbuild --nodeps --noconfirm
+          '
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vr-cyberdeck-bin
+          path: "*.pkg.tar.zst"
+          if-no-files-found: error
+          retention-days: 30
