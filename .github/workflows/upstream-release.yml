@@ -5,25 +5,28 @@ on:
     - cron: "17 6 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
   group: vr-cyberdeck-upstream-release
   cancel-in-progress: false
 
 jobs:
-  update-and-release:
+  check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.upstream.outputs.tag }}
+      version: ${{ steps.upstream.outputs.version }}
+      exists: ${{ steps.upstream.outputs.exists }}
 
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: check upstream release
+      - name: Check upstream release
         id: upstream
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,56 +44,49 @@ jobs:
 
           version="${tag#v}"
           asset="vr-cyberdeck-${version}-x86_64.AppImage"
-
           url="$(jq -er --arg asset "$asset" \
             '[.assets[] | select(.name == $asset)][0].browser_download_url' \
             <<< "$release")"
+          expected_url="https://github.com/DeliciousMeatPop/VRCD/releases/download/${tag}/${asset}"
 
-          if [[ -z "$url" || "$url" == "null" ]]; then
-            echo "::error::Upstream AppImage not found: $asset"
+          if [[ "$url" != "$expected_url" ]]; then
+            echo "::error::Unexpected upstream download URL"
             exit 1
           fi
 
           {
             echo "tag=$tag"
             echo "version=$version"
-            echo "url=$url"
           } >> "$GITHUB_OUTPUT"
-
-          # Only skip when the release is already published in this repo.
 
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Release $tag already exists; nothing to do."
+            echo "Release $tag already exists."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "New release detected: $tag"
+            echo "New upstream release: $tag"
           fi
 
-      - name: download sources and calculate checksums
+      - name: Prepare and validate package
         if: steps.upstream.outputs.exists == 'false'
         env:
           VERSION: ${{ steps.upstream.outputs.version }}
-          URL: ${{ steps.upstream.outputs.url }}
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p build-sources
 
-          mkdir -p .build-sources
-
+          asset="vr-cyberdeck-${VERSION}-x86_64.AppImage"
           curl --fail --location --retry 3 --retry-all-errors \
-            "$URL" \
-            --output ".build-sources/vr-cyberdeck-${VERSION}-x86_64.AppImage"
+            "https://github.com/DeliciousMeatPop/VRCD/releases/download/v${VERSION}/${asset}" \
+            -o "build-sources/${asset}"
 
           curl --fail --location --retry 3 --retry-all-errors \
             "https://github.com/DeliciousMeatPop/VRCD/archive/refs/tags/v${VERSION}.tar.gz" \
-            --output .build-sources/vrcd-source.tar.gz
+            -o "build-sources/v${VERSION}.tar.gz"
 
-          test -s ".build-sources/vr-cyberdeck-${VERSION}-x86_64.AppImage"
-          test -s .build-sources/vrcd-source.tar.gz
-
-          app_sha="$(sha256sum ".build-sources/vr-cyberdeck-${VERSION}-x86_64.AppImage" | cut -d' ' -f1)"
-          src_sha="$(sha256sum .build-sources/vrcd-source.tar.gz | cut -d' ' -f1)"
+          app_sha="$(sha256sum "build-sources/${asset}" | cut -d' ' -f1)"
+          src_sha="$(sha256sum "build-sources/v${VERSION}.tar.gz" | cut -d' ' -f1)"
 
           python3 - "$VERSION" "$app_sha" "$src_sha" <<'PY'
           import re
@@ -106,30 +102,13 @@ jobs:
                   pattern, replacement, content, count=1, flags=re.M
               )
               if count != 1:
-                  raise SystemExit(f"Could not update {name}: expected one match")
+                  raise SystemExit(f"Could not update {name}")
               return updated
 
-          old_version_match = re.search(r"^pkgver=(.*)$", data, re.M)
-          if not old_version_match:
-              raise SystemExit("PKGBUILD is missing pkgver")
+          data = replace_one(r"^pkgver=.*$", f"pkgver={version}", data, "pkgver")
+          data = replace_one(r"^pkgrel=.*$", "pkgrel=1", data, "pkgrel")
 
-          old_version = old_version_match.group(1).strip()
-
-          data = replace_one(
-              r"^pkgver=.*$", f"pkgver={version}", data, "pkgver"
-          )
-
-
-          data = replace_one(
-              r"^pkgrel=.*$", "pkgrel=1", data, "pkgrel"
-          )
-
-
-          sums = (
-              f"sha256sums=('{app_sha}'\n"
-              f"            '{src_sha}')"
-          )
-
+          sums = f"sha256sums=('{app_sha}'\n            '{src_sha}')"
           data, count = re.subn(
               r"sha256sums=\(.*?\)", lambda _: sums, data, count=1, flags=re.S
           )
@@ -137,13 +116,8 @@ jobs:
               raise SystemExit("Could not update sha256sums")
 
           path.write_text(data)
-          print(f"PKGBUILD updated for upstream version {version}")
           PY
 
-      - name: validate PKGBUILD
-        if: steps.upstream.outputs.exists == 'false'
-        run: |
-          set -euo pipefail
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/repo" \
             -w /repo \
@@ -154,10 +128,38 @@ jobs:
               bash -n PKGBUILD
             '
 
-      - name: build package
+      - name: Upload prepared inputs
         if: steps.upstream.outputs.exists == 'false'
-        env:
-          VERSION: ${{ steps.upstream.outputs.version }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepared-inputs
+          path: |
+            PKGBUILD
+            build-sources/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs: check
+    if: needs.check.outputs.exists == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download prepared inputs
+        uses: actions/download-artifact@v7
+        with:
+          name: prepared-inputs
+          path: prepared
+
+      - name: Build package
         shell: bash
         run: |
           set -euo pipefail
@@ -170,11 +172,13 @@ jobs:
               pacman -Syu --noconfirm --needed git android-tools fuse2
 
               useradd -m builder
-              mkdir -p /tmp/build
-              cp /repo/PKGBUILD /tmp/build/
-              chown -R builder:builder /tmp/build
+              mkdir -p /tmp/build /tmp/sources
+              cp /repo/prepared/PKGBUILD /tmp/build/
+              cp -a /repo/prepared/build-sources/. /tmp/sources/
+              chown -R builder:builder /tmp/build /tmp/sources
 
               runuser -u builder -- bash -euo pipefail -c "
+                export SRCDEST=/tmp/sources
                 cd /tmp/build
                 makepkg --cleanbuild --nodeps --noconfirm
               "
@@ -182,17 +186,52 @@ jobs:
               cp /tmp/build/*.pkg.tar.zst /repo/
             '
 
-          package="$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)"
-          test -n "$package"
-          echo "Built package: $package"
+          test -n "$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)"
 
-      - name: commit updated PKGBUILD
-        if: steps.upstream.outputs.exists == 'false'
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: built-package
+          path: "*.pkg.tar.zst"
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [check, build]
+    if: needs.check.outputs.exists == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download prepared PKGBUILD
+        uses: actions/download-artifact@v7
+        with:
+          name: prepared-inputs
+          path: prepared-inputs
+
+      - name: Download package
+        uses: actions/download-artifact@v7
+        with:
+          name: built-package
+          path: built-package
+
+      - name: Commit PKGBUILD and publish release
         env:
-          VERSION: ${{ steps.upstream.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+          VERSION: ${{ needs.check.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
+
+          cp prepared-inputs/PKGBUILD PKGBUILD
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -203,20 +242,10 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - name: publish GitHub release
-        if: steps.upstream.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.upstream.outputs.version }}
-          TAG: ${{ steps.upstream.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          package="$(find . -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)"
+          package="$(find built-package -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)"
           test -n "$package"
 
           gh release create "$TAG" "$package" \
             --verify-tag=false \
             --title "VR CyberDeck $TAG" \
-            --notes "upstream release: [click here](https://github.com/DeliciousMeatPop/VRCD/releases/tag/${TAG})"
+            --notes "Upstream release: https://github.com/DeliciousMeatPop/VRCD/releases/tag/${TAG}"
