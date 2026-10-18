@@ -6,16 +6,10 @@ my arch package for vr cyberdeck !!
 
 ### automatic (recommended)
 
-run this one-liner to add the pacman repository and install the package:
+run this one-liner to add the pacman repository, update system and install the package:
 
 ```bash
 sudo sh -c 'grep -qxF "[vr-cyberdeck]" /etc/pacman.conf || printf "\n[vr-cyberdeck]\nSigLevel = Optional\nServer = https://github.com/maxwell523452/vr-cyberdeck-bin/releases/download/pacman-repo\n" >> /etc/pacman.conf' && sudo pacman -Syu --needed vr-cyberdeck-bin
-```
-
-after the setup, update it together with your system:
-
-```bash
-sudo pacman -Syu
 ```
 
 ### manual installation
