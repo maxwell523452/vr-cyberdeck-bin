@@ -60,7 +60,7 @@ jobs:
             bash -euo pipefail -c '
               pacman -Sy --noconfirm --needed pacman-contrib
               repo-add vr-cyberdeck.db.tar.gz ./*.pkg.tar.zst
-              cp -L vr-cyberdeck.db.tar.gz vr-cyberdeck.db
+              rm -f vr-cyberdeck.db && cp vr-cyberdeck.db.tar.gz vr-cyberdeck.db
             '
 
       - name: Publish GitHub Pages branch
