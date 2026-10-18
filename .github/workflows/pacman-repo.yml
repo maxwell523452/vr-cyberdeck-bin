@@ -19,65 +19,51 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: true
+        uses: actions/checkout@v4
 
-      - name: Download all released packages
+      - name: Download released packages
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p "$RUNNER_TEMP/repo/vr-cyberdeck/x86_64"
+          mkdir -p "$RUNNER_TEMP/repo/x86_64"
 
           while IFS= read -r tag; do
             [[ -n "$tag" ]] || continue
+            gh release download "$tag" \
+              --pattern '*.pkg.tar.zst' \
+              --dir "$RUNNER_TEMP/repo/x86_64" || true
+          done < <(gh release list --limit 1000 --json tagName --jq '.[].tagName')
 
-            if gh release view "$tag" --json assets \
-              --jq '.assets[].name' | grep -qE '\.pkg\.tar\.zst$'; then
-              gh release download "$tag" \
-                --pattern '*.pkg.tar.zst' \
-                --dir "$RUNNER_TEMP/repo/vr-cyberdeck/x86_64"
-            fi
-          done < <(
-            gh release list --limit 1000 --json tagName --jq '.[].tagName'
-          )
-
-          find "$RUNNER_TEMP/repo/vr-cyberdeck/x86_64" \
-            -maxdepth 1 -name '*.pkg.tar.zst' | grep -q .
+          find "$RUNNER_TEMP/repo/x86_64" -name '*.pkg.tar.zst' -print -quit | grep -q .
 
       - name: Generate repository database
-        shell: bash
         run: |
           set -euo pipefail
-
           docker run --rm \
             -v "$RUNNER_TEMP/repo:/repo" \
-            -w /repo/vr-cyberdeck/x86_64 \
+            -w /repo/x86_64 \
             archlinux:base-devel \
             bash -euo pipefail -c '
               pacman -Sy --noconfirm --needed pacman-contrib
               repo-add vr-cyberdeck.db.tar.gz ./*.pkg.tar.zst
-              rm -f vr-cyberdeck.db && cp vr-cyberdeck.db.tar.gz vr-cyberdeck.db
+              rm -f vr-cyberdeck.db
+              cp vr-cyberdeck.db.tar.gz vr-cyberdeck.db
+              rm -f vr-cyberdeck.files
             '
 
-      - name: Publish GitHub Pages branch
+      - name: Publish repository assets
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
+          TAG="pacman-repo"
 
-          git switch --orphan gh-pages
-          git rm -rf . >/dev/null 2>&1 || true
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "Pacman repository" \
+              --notes "Generated package repository database."
+          fi
 
-          cp -a "$RUNNER_TEMP/repo/." .
-          touch .nojekyll
-
-          git add -f vr-cyberdeck .nojekyll
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: update pacman repository"
-          git push origin HEAD:gh-pages --force
+          gh release upload "$TAG" "$RUNNER_TEMP"/repo/x86_64/* \
+            --clobber
