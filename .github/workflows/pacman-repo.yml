@@ -1,0 +1,83 @@
+name: publish pacman repository
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pacman-repository
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+
+      - name: Download all released packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/repo/vr-cyberdeck/x86_64"
+
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+
+            if gh release view "$tag" --json assets \
+              --jq '.assets[].name' | grep -qE '\.pkg\.tar\.zst$'; then
+              gh release download "$tag" \
+                --pattern '*.pkg.tar.zst' \
+                --dir "$RUNNER_TEMP/repo/vr-cyberdeck/x86_64"
+            fi
+          done < <(
+            gh release list --limit 1000 --json tagName --jq '.[].tagName'
+          )
+
+          find "$RUNNER_TEMP/repo/vr-cyberdeck/x86_64" \
+            -maxdepth 1 -name '*.pkg.tar.zst' | grep -q .
+
+      - name: Generate repository database
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$RUNNER_TEMP/repo:/repo" \
+            -w /repo/vr-cyberdeck/x86_64 \
+            archlinux:base-devel \
+            bash -euo pipefail -c '
+              pacman -Sy --noconfirm --needed pacman-contrib
+              repo-add vr-cyberdeck.db.tar.gz ./*.pkg.tar.zst
+              cp -L vr-cyberdeck.db.tar.gz vr-cyberdeck.db
+            '
+
+      - name: Publish GitHub Pages branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git switch --orphan gh-pages
+          git rm -rf . >/dev/null 2>&1 || true
+
+          cp -a "$RUNNER_TEMP/repo/." .
+          touch .nojekyll
+
+          git add -f vr-cyberdeck .nojekyll
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update pacman repository"
+          git push origin HEAD:gh-pages --force
