@@ -123,7 +123,7 @@ jobs:
             -w /repo \
             archlinux:base-devel \
             bash -euo pipefail -c '
-              pacman -Sy --noconfirm --needed pacman-contrib
+              pacman -Sy --noconfirm --needed pacman-contrib namcap
               namcap PKGBUILD
               bash -n PKGBUILD
             '
