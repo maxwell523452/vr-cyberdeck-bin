@@ -1,6 +1,6 @@
 
 pkgname=vr-cyberdeck-bin
-pkgver=1.8.8
+pkgver=1.8.9
 pkgrel=1
 pkgdesc="Android and Meta Quest desktop sideloader"
 arch=('x86_64')
@@ -16,8 +16,8 @@ source=(
   "https://github.com/DeliciousMeatPop/VRCD/archive/refs/tags/v${pkgver}.tar.gz"
 )
 
-sha256sums=('5006725beb939309bb1e8a291379dd3eea812569794706ab0ac3ab35ad14c0a1'
-            'fa754e8f7333389144943f8a0e3924077f91bbf7ac8af8374bc012cb6d08d80d')
+sha256sums=('f4f29e1a2b7f875d5afdc1005591b62d5ed50c94cd8c0487ae3f8504fa34e424'
+            'c5cefc2da57ac0fcccc82d3728a9948d693437b57d7a539d85554bc535f162ef')
 
 package() {
   install -Dm644 "${srcdir}/VRCD-${pkgver}/LICENSE" \
