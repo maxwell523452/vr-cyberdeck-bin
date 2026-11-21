@@ -1,0 +1,160 @@
+name: release
+
+# Runs when PKGBUILD (or the udev rules) change on main, i.e. after you merge
+# an upstream-update PR or a packaging fix. Bump pkgrel for packaging-only fixes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - PKGBUILD
+      - "*.rules"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild and re-publish even if this version was already released
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      needed: ${{ steps.plan.outputs.needed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Decide whether a release is needed
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          pkgver="$(sed -n 's/^pkgver=//p' PKGBUILD)"
+          pkgrel="$(sed -n 's/^pkgrel=//p' PKGBUILD)"
+          [[ $pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "::error::bad pkgver: $pkgver"; exit 1; }
+          [[ $pkgrel =~ ^[0-9]+$ ]] || { echo "::error::bad pkgrel: $pkgrel"; exit 1; }
+          tag="v${pkgver}-${pkgrel}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          if [[ $FORCE == "true" ]]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rc=0
+          scripts/gh-release-exists.sh "$tag" || rc=$?
+          case $rc in
+            0) echo "Release ${tag} already exists - nothing to do."
+               echo "needed=false" >> "$GITHUB_OUTPUT" ;;
+            1) echo "needed=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::could not query release ${tag}"; exit 1 ;;
+          esac
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.needed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build package in a clean Arch container
+        run: scripts/ci-build.sh
+
+      - name: Upload package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: out/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+
+  deb:
+    needs: [plan, build]
+    if: needs.plan.outputs.needed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package
+          path: dist-pkg
+
+      - name: Build .deb from the package
+        run: scripts/build-deb.sh dist-pkg/*.pkg.tar.zst deb-out
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deb
+          path: deb-out/*.deb
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [plan, build, deb]
+    if: needs.plan.outputs.needed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Secrets live in this environment only; optionally require a manual approval.
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package
+          path: dist
+
+      - name: Download .deb
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: deb
+          path: dist-deb
+
+      - name: Sign packages and build repository database
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
+        run: scripts/ci-sign.sh
+
+      - name: Publish releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: scripts/publish.sh
