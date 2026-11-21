@@ -1,0 +1,3 @@
+# Meta (Oculus) Quest headsets: give the logged-in desktop user access to the
+# USB device node (needed for adb) without running anything as root.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2833", TAG+="uaccess"
