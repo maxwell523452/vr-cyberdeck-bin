@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Print the version of the latest upstream release (without the leading "v").
-# Exit codes: 0 ok, 1 error, 3 release exists but has no x86_64 AppImage yet.
+# Exit codes: 0 ok, 1 error, 3 release exists but has no amd64 .deb yet.
 # Needs: gh (authenticated via GH_TOKEN), jq.
 set -euo pipefail
 
@@ -15,7 +15,7 @@ if [[ ! $tag =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
 fi
 
 version="${tag#v}"
-asset="vr-cyberdeck-${version}-x86_64.AppImage"
+asset="vr-cyberdeck-${version}-amd64.deb"
 
 if ! jq -e --arg a "$asset" '.assets | any(.name == $a)' <<<"$release" >/dev/null; then
   echo "upstream release ${tag} has no ${asset} (yet)" >&2

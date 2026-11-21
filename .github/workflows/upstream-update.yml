@@ -56,7 +56,7 @@ jobs:
           rc=0
           latest="$(scripts/latest-upstream.sh)" || rc=$?
           if [[ $rc -eq 3 ]]; then
-            echo "::warning::latest upstream release has no x86_64 AppImage yet"
+            echo "::warning::latest upstream release has no amd64 .deb yet"
             exit 0
           elif [[ $rc -ne 0 ]]; then
             exit "$rc"
@@ -170,7 +170,7 @@ jobs:
             echo "- Upstream release: https://github.com/DeliciousMeatPop/VRCD/releases/tag/v${VERSION}"
             echo "- The package was test-built in a clean Arch container."
             echo "- Checksums were computed from files downloaded by CI, so **review the diff**:"
-            echo "  compare the AppImage checksum with the one you get from downloading it yourself."
+            echo "  compare the .deb checksum with the one you get from downloading it yourself."
             echo
             echo "Merging this pull request builds, signs and publishes the package."
             echo

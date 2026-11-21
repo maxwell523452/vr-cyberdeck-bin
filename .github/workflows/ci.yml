@@ -48,6 +48,3 @@ jobs:
 
       - name: Build package in a clean Arch container
         run: scripts/ci-build.sh
-
-      - name: Build .deb from the package
-        run: scripts/build-deb.sh out/*.pkg.tar.zst out-deb
