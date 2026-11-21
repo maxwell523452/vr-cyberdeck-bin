@@ -1,0 +1,184 @@
+name: upstream-update
+
+# Daily: look for a new upstream release. If there is one, update PKGBUILD,
+# test-build it and open a pull request. Nothing is published until you merge.
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: upstream-update
+  cancel-in-progress: false
+
+jobs:
+  # GitHub disables scheduled workflows after 60 days without repository
+  # activity. Re-enabling ourselves on every run resets that timer.
+  keepalive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Keep this workflow enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow enable upstream-update.yml || true
+
+  detect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      update: ${{ steps.detect.outputs.update }}
+      version: ${{ steps.detect.outputs.version }}
+      pkgbuild_sha256: ${{ steps.detect.outputs.pkgbuild_sha256 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Look for a new upstream release
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "update=false" >> "$GITHUB_OUTPUT"
+
+          rc=0
+          latest="$(scripts/latest-upstream.sh)" || rc=$?
+          if [[ $rc -eq 3 ]]; then
+            echo "::warning::latest upstream release has no x86_64 AppImage yet"
+            exit 0
+          elif [[ $rc -ne 0 ]]; then
+            exit "$rc"
+          fi
+
+          current="$(sed -n 's/^pkgver=//p' PKGBUILD)"
+          newest="$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)"
+          if [[ $latest == "$current" || $newest != "$latest" ]]; then
+            echo "Up to date (packaged ${current}, upstream ${latest})."
+            exit 0
+          fi
+
+          branch="update/upstream-${latest}"
+          existing="$(gh pr list --state all --head "$branch" --json number --jq length)"
+          if [[ $existing != "0" ]]; then
+            echo "A pull request for ${latest} already exists - skipping."
+            exit 0
+          fi
+
+          scripts/update-pkgbuild.sh "$latest"
+          {
+            echo "update=true"
+            echo "version=${latest}"
+            echo "pkgbuild_sha256=$(sha256sum PKGBUILD | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload updated PKGBUILD
+        if: steps.detect.outputs.update == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pkgbuild
+          path: PKGBUILD
+          if-no-files-found: error
+          retention-days: 1
+
+  test-build:
+    needs: detect
+    if: needs.detect.outputs.update == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download updated PKGBUILD
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pkgbuild
+          path: updated
+
+      - name: Verify and apply
+        env:
+          EXPECTED: ${{ needs.detect.outputs.pkgbuild_sha256 }}
+        run: |
+          set -euo pipefail
+          echo "${EXPECTED}  updated/PKGBUILD" | sha256sum --check --strict -
+          cp updated/PKGBUILD PKGBUILD
+
+      # makepkg downloads the sources again and checks every checksum, so a
+      # file that changed between the jobs makes this step fail.
+      - name: Build package in a clean Arch container
+        run: scripts/ci-build.sh
+
+  open-pr:
+    needs: [detect, test-build]
+    if: needs.detect.outputs.update == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Credentials stay persisted here: this job has to push a branch.
+      # It runs no code from upstream, only git and gh.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download updated PKGBUILD
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pkgbuild
+          path: updated
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.detect.outputs.version }}
+          EXPECTED: ${{ needs.detect.outputs.pkgbuild_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ $VERSION =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "::error::bad version"; exit 1; }
+          echo "${EXPECTED}  updated/PKGBUILD" | sha256sum --check --strict -
+
+          branch="update/upstream-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          cp updated/PKGBUILD PKGBUILD
+          git add PKGBUILD
+          git commit -m "chore: update VR CyberDeck to ${VERSION}"
+          git push origin "$branch"
+
+          {
+            echo "Automated update to upstream **v${VERSION}**."
+            echo
+            echo "- Upstream release: https://github.com/DeliciousMeatPop/VRCD/releases/tag/v${VERSION}"
+            echo "- The package was test-built in a clean Arch container."
+            echo "- Checksums were computed from files downloaded by CI, so **review the diff**:"
+            echo "  compare the AppImage checksum with the one you get from downloading it yourself."
+            echo
+            echo "Merging this pull request builds, signs and publishes the package."
+            echo
+            echo '```diff'
+            git diff HEAD~1 -- PKGBUILD
+            echo '```'
+          } > pr-body.md
+
+          gh pr create --base main --head "$branch" \
+            --title "chore: update VR CyberDeck to ${VERSION}" \
+            --body-file pr-body.md

@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            -w /repo \
+            rhysd/actionlint:1.7.7 -color
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      - name: PKGBUILD syntax
+        run: bash -n PKGBUILD
+
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build package in a clean Arch container
+        run: scripts/ci-build.sh
+
+      - name: Build .deb from the package
+        run: scripts/build-deb.sh out/*.pkg.tar.zst out-deb
