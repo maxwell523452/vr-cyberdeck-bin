@@ -33,24 +33,22 @@ fetch() { # url dest max-bytes
     --output "$2" "$1"
 }
 
-asset="vr-cyberdeck-${ver}-x86_64.AppImage"
+asset="vr-cyberdeck-${ver}-amd64.deb"
 raw="https://raw.githubusercontent.com/${upstream}/v${ver}"
 
 echo ">> downloading upstream v${ver}"
-fetch "https://github.com/${upstream}/releases/download/v${ver}/${asset}" "$tmp/appimage" 1073741824
+fetch "https://github.com/${upstream}/releases/download/v${ver}/${asset}" "$tmp/deb" 1073741824
 fetch "${raw}/LICENSE" "$tmp/license" 1048576
-fetch "${raw}/resources/icon.png" "$tmp/icon" 10485760
 
-magic="$(head -c 4 "$tmp/appimage" | od -An -tx1 | tr -d ' \n')"
-[[ $magic == 7f454c46 ]] || die "downloaded AppImage is not an ELF file"
+magic="$(head -c 7 "$tmp/deb")"
+[[ $magic == '!<arch>' ]] || die "downloaded file is not a .deb (ar archive)"
 grep -q 'GNU GENERAL PUBLIC LICENSE' "$tmp/license" \
   || die "upstream LICENSE is not GPL-3.0 any more - review license= in PKGBUILD"
 
 # Order must match the source=() array in PKGBUILD.
 sums=(
-  "$(sha256sum "$tmp/appimage" | cut -d' ' -f1)"
+  "$(sha256sum "$tmp/deb" | cut -d' ' -f1)"
   "$(sha256sum "$tmp/license" | cut -d' ' -f1)"
-  "$(sha256sum "$tmp/icon" | cut -d' ' -f1)"
   "$(sha256sum "$rules" | cut -d' ' -f1)"
 )
 

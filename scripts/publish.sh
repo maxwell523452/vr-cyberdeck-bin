@@ -23,19 +23,10 @@ pkg="$(basename "${pkgs[0]}")"
   || die "package ${pkg} does not match tag ${TAG}"
 [[ -f $dir/$pkg.sig ]] || die "missing signature for ${pkg}"
 
-debs=("$dir"/*.deb)
-[[ ${#debs[@]} -eq 1 ]] || die "expected exactly one .deb in ${dir}"
-deb="$(basename "${debs[0]}")"
-[[ $deb == "vr-cyberdeck-bin_${TAG#v}_amd64.deb" ]] \
-  || die ".deb ${deb} does not match tag ${TAG}"
-[[ -f $dir/$deb.sig ]] || die "missing signature for ${deb}"
-
 sha="$(sha256sum "$dir/$pkg" | cut -d' ' -f1)"
-deb_sha="$(sha256sum "$dir/$deb" | cut -d' ' -f1)"
-notes="Arch package and .deb for VR CyberDeck ${TAG#v}, built from the official upstream AppImage.
+notes="Arch package for VR CyberDeck ${TAG#v}, repackaged from the official upstream .deb.
 
-${pkg} sha256: \`${sha}\`
-${deb} sha256: \`${deb_sha}\`
+sha256: \`${sha}\`
 Upstream: https://github.com/DeliciousMeatPop/VRCD/releases/tag/${TAG%-*}"
 
 ensure_release() { # tag title notes [files...]
@@ -50,9 +41,8 @@ ensure_release() { # tag title notes [files...]
   esac
 }
 
-# 1) versioned release: packages + signatures
-ensure_release "$TAG" "VR CyberDeck ${TAG#v}" "$notes" \
-  "$dir/$pkg" "$dir/$pkg.sig" "$dir/$deb" "$dir/$deb.sig"
+# 1) versioned release: package + signature
+ensure_release "$TAG" "VR CyberDeck ${TAG#v}" "$notes" "$dir/$pkg" "$dir/$pkg.sig"
 
 # 2) repository release: package first, so the database never points at a missing file
 ensure_release "$repo_tag" "Pacman repository" \

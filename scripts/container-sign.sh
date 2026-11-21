@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Runs INSIDE archlinux:base-devel as root, without network.
-#   /dist      the unsigned Arch package (read-only)
-#   /dist-deb  the unsigned .deb (read-only)
-#   /out       receives packages, signatures, repo database and public key
+#   /dist  the unsigned package (read-only)
+#   /out   receives package, signatures, repo database and public key
 set -euo pipefail
 
 in="${IN:-/dist}"
-in_deb="${IN_DEB:-/dist-deb}"
 out="${OUT:-/out}"
 db=vr-cyberdeck
 
@@ -20,13 +18,6 @@ if [[ ${#pkgs[@]} -ne 1 ]]; then
 fi
 pkg="${pkgs[0]}"
 pkgname="$(basename "$pkg")"
-
-debs=("$in_deb"/*.deb)
-if [[ ${#debs[@]} -ne 1 ]]; then
-  echo "error: expected exactly one .deb in ${in_deb}, found ${#debs[@]}" >&2
-  exit 1
-fi
-debname="$(basename "${debs[0]}")"
 
 GNUPGHOME="$(mktemp -d)"
 export GNUPGHOME
@@ -52,11 +43,10 @@ sign() {
 }
 
 install -d "$out"
-cp "$pkg" "${debs[0]}" "$out/"
+cp "$pkg" "$out/"
 cd "$out"
 
 sign "$pkgname"
-sign "$debname"
 
 repo-add "${db}.db.tar.gz" "$pkgname"
 
@@ -74,7 +64,7 @@ rm -f ./*.old
 gpg --batch --armor --export "$fpr" > "${db}.gpg"
 
 # Verify everything we are about to publish.
-for f in "$pkgname" "$debname" "${db}.db.tar.gz" "${db}.db" "${db}.files.tar.gz" "${db}.files"; do
+for f in "$pkgname" "${db}.db.tar.gz" "${db}.db" "${db}.files.tar.gz" "${db}.files"; do
   [[ -f $f ]] || continue
   gpg --batch --verify "${f}.sig" "$f"
 done

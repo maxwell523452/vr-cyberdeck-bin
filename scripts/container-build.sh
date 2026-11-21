@@ -31,19 +31,7 @@ pkg="${pkgs[0]}"
 namcap "$build/PKGBUILD" || true
 namcap "$pkg" || true
 
-listing="$(bsdtar -tf "$pkg")"
-for path in \
-  opt/vr-cyberdeck/vr-cyberdeck.AppImage \
-  usr/bin/vr-cyberdeck \
-  usr/share/applications/vr-cyberdeck.desktop \
-  usr/share/pixmaps/vr-cyberdeck.png \
-  usr/share/licenses/vr-cyberdeck-bin/LICENSE \
-  usr/lib/udev/rules.d/51-vr-cyberdeck-quest.rules; do
-  if ! grep -Fxq -- "$path" <<<"$listing"; then
-    echo "error: package is missing ${path}" >&2
-    exit 1
-  fi
-done
+"$src/scripts/verify-package.sh" "$pkg"
 
 install -m 644 "$pkg" "$out/"
 if [[ -n ${HOST_UID:-} ]]; then

@@ -89,38 +89,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  deb:
-    needs: [plan, build]
-    if: needs.plan.outputs.needed == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Download package
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: package
-          path: dist-pkg
-
-      - name: Build .deb from the package
-        run: scripts/build-deb.sh dist-pkg/*.pkg.tar.zst deb-out
-
-      - name: Upload .deb
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: deb
-          path: deb-out/*.deb
-          if-no-files-found: error
-          retention-days: 1
-
   publish:
-    needs: [plan, build, deb]
+    needs: [plan, build]
     if: needs.plan.outputs.needed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -140,13 +110,7 @@ jobs:
           name: package
           path: dist
 
-      - name: Download .deb
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: deb
-          path: dist-deb
-
-      - name: Sign packages and build repository database
+      - name: Sign package and build repository database
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
