@@ -12,8 +12,8 @@ cd vr-cyberdeck-bin
 git diff PKGBUILD
 ```
 
-Kontrol: ilk sha256 (AppImage), eski PKGBUILD'daki değerle aynı olmalı:
-`f09917e38c5aacb80a7986069c799b652696cc85055637f1ed55c7bf895c015c`.
+Kontrol: ilk sha256 (`.deb`) şu değer olmalı:
+`59fb2d6b3f3b64b620b24014d25d0eb2b5593d00d9ef0a5f7e67f8e41ad3f6a9`.
 Farklıysa durma ve nedenini araştır.
 
 Script "upstream LICENSE is not GPL-3.0" derse upstream'in `LICENSE` dosyasını aç ve
@@ -75,7 +75,6 @@ git commit -m "fix: ship quest udev rule and pin all package sources by sha256"
 git add scripts .github
 git commit -m "security: sign pacman repo and publish updates through reviewed prs"
 
-# (.deb build is part of the scripts/.github commit above)
 
 git add -A
 git commit -m "chore: revise readme"
@@ -100,7 +99,7 @@ README'deki "Install" adımlarını uygula. Eskiden `SigLevel = Optional` ile ek
 ## 5. Günlük işleyiş
 
 - Upstream yeni sürüm çıkarırsa bot `update/upstream-X.Y.Z` PR'ı açar.
-  PR'da diff'i incele, AppImage'ın sha256'sını kendin indirip karşılaştırabilirsin,
+  PR'da diff'i incele, .deb'in sha256'sını kendin indirip karşılaştırabilirsin,
   sonra merge et. Yayın otomatik olur.
 - Sadece paketleme düzeltmesi (PKGBUILD, udev kuralı): dosyayı düzenle, `pkgrel`'i 1 artır,
   kaynak değiştiyse `./scripts/update-pkgbuild.sh` çalıştır, PR aç, merge et.
@@ -113,18 +112,15 @@ Yeni anahtar üret, `GPG_PRIVATE_KEY` ve `GPG_FINGERPRINT` değerlerini güncell
 parmak izini değiştir, `release` iş akışını `force` ile çalıştır ve kullanıcılara yeni anahtarı
 güvenmelerini söyle.
 
-## .deb çıktısı
+## Paket nasıl üretiliyor
 
-Her release artık Arch paketinin yanında `.deb` de üretir (`scripts/build-deb.sh`).
-`.deb`, Arch paketinin içinden çıkarılır, yani iki formatta da birebir aynı dosyalar vardır.
-`.deb` ve `.sig` dosyaları `vX.Y.Z-N` release'ine yüklenir. `pacman-repo` release'ine girmez.
-APT reposu yok, Debian/Ubuntu kullanıcıları güncellemeyi elle indirir.
+Arch paketi artık AppImage'dan değil, upstream'in kendi `vr-cyberdeck-X.Y.Z-amd64.deb` dosyasından üretilir:
+`.deb` açılır, `/opt/VR CyberDeck` dizini `/opt/vr-cyberdeck` olarak yeniden adlandırılır, `.desktop`
+dosyasındaki yol düzeltilir, `chrome-sandbox` SUID'siz (0755) bırakılır ve `/usr/bin/vr-cyberdeck`
+linki eklenir. Upstream'in Debian'a özel adımları (AppArmor profili, `update-alternatives`) alınmaz.
+Build sonunda `scripts/verify-package.sh` dosya yollarını ve setuid olmadığını denetler.
 
 ## Bilinen sınırlar
-
-- `.deb` içindeki `Depends` paket adları Debian/Ubuntu'da denenmedi (t64 yeniden adlandırmaları için
-  `a | b` alternatifleri koydum). İlk `.deb`'i bir Ubuntu/Debian makinede `sudo apt install ./...deb`
-  ile dene ve eksik bağımlılık çıkarsa bana yaz.
 
 - Upstream'in kendisi ele geçirilirse checksum bunu yakalamaz, çünkü checksum'lar indirilen
   dosyadan hesaplanır. Bu yüzden güncellemeler PR ile gelir ve elle onay ister.
@@ -133,6 +129,8 @@ APT reposu yok, Debian/Ubuntu kullanıcıları güncellemeyi elle indirir.
   çalıştırmada görülecek.
 - Action SHA'ları eski dosyalarından aynen alındı, doğrulayamadım. Dependabot haftalık günceller.
 - `archlinux:base-devel` imajı digest ile sabitlenmedi.
-- `depends` içindeki Electron kütüphaneleri güvenli bir üst küme. Gereksizleri sonra çıkarabilirsin.
-- AppImage `/opt` altında root'a ait, uygulamanın kendi kendini güncellemesi çalışmaz
-  (güncelleme pacman ile gelir).
+- `depends` upstream `.deb`'in `Depends:` satırından çevrildi, ek olarak `alsa-lib` var.
+- Uygulamanın kendi içindeki "güncelle" düğmesi büyük ihtimalle Arch'ta çalışmaz (paket `.deb` türünde
+  işaretli, `dpkg` bekler). Denemedim. Güncellemeler pacman ile gelir.
+- Sandbox kullanıcı namespace'lerine dayanır. `linux-hardened` gibi bunu kapatan çekirdeklerde
+  `chrome-sandbox`'a elle SUID vermek gerekir.
