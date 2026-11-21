@@ -1,5 +1,17 @@
 src/
 pkg/
+out/
+dist/
+dist-deb/
+dist-pkg/
+out-deb/
+deb-out/
+repo-out/
 *.pkg.tar.zst
+*.pkg.tar.zst.sig
+*.deb
+*.deb.sig
 *.AppImage
 *.tar.gz
+*.asc
+*.gpg
