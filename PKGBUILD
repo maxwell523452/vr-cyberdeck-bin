@@ -2,8 +2,8 @@
 # Upstream:   https://github.com/DeliciousMeatPop/VRCD
 
 pkgname=vr-cyberdeck-bin
-pkgver=2.0.0
-pkgrel=2
+pkgver=2.0.1
+pkgrel=1
 pkgdesc='Android and Meta Quest desktop sideloader (repackaged upstream .deb)'
 arch=('x86_64')
 url='https://github.com/DeliciousMeatPop/VRCD'
@@ -36,7 +36,7 @@ source=(
 )
 
 # Filled in by scripts/update-pkgbuild.sh - do not edit by hand.
-sha256sums=('59fb2d6b3f3b64b620b24014d25d0eb2b5593d00d9ef0a5f7e67f8e41ad3f6a9'
+sha256sums=('df3508bc069af8fc70ff1baa2ccd0e5753442e7a497e1a55a1e9d547ce14bdd9'
             'a11818586bf0e1cbdca5e670fd59773a5d741c329bdf9ab33cc00ff3ff9d8416'
             '8959cea0641386792b675919b29f150319434f5b2a4fa367cd510e7accf56b49')
 
